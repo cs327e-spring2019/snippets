@@ -1,1 +1,1 @@
-# snippets
+# Code samples and tutorials
