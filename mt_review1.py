@@ -26,7 +26,7 @@ with beam.Pipeline('DirectRunner', options=opts) as p:
 
     query_results = p | 'Read from BigQuery' >> beam.io.Read(beam.io.BigQuerySource(query='SELECT * FROM fast_food.Restaurant'))
 
-    actor_pcoll = query_results | 'Extract Actor' >> beam.ParDo(MysteryFn())
+    out_pcoll = query_results | 'Extract Actor' >> beam.ParDo(MysteryFn())
     
     qualified_table_name = PROJECT_ID + ':fast_food.TableServe'
     table_schema = 'id:INTEGER,food:STRING'
