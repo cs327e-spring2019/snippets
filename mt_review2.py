@@ -27,11 +27,11 @@ with beam.Pipeline('DirectRunner', options=opts) as p:
 
     query_results = p | 'Read from BigQuery' >> beam.io.Read(beam.io.BigQuerySource(query='SELECT employed_at, salary, fname, lname FROM fast_food.Employee'))
 
-    actor_pcoll = query_results | 'Awesome Transform' >> beam.ParDo(Lmfao())
+    t1 = query_results | 'Awesome Transform' >> beam.ParDo(Lmfao())
 
-    group_pcoll = actor_pcoll | 'Rad Transform' >> beam.GroupByKey()
+    t2 = t1 | 'Rad Transform' >> beam.GroupByKey()
   
-    sum_pcoll = group_pcoll | 'Cool Transform' >> beam.ParDo(Rofl())
+    out_pcoll = t2 | 'Cool Transform' >> beam.ParDo(Rofl())
     
     qualified_table_name = PROJECT_ID + ':fast_food.MysteryTable'
     table_schema = 'employed_at:INTEGER,mystery_field:NUMERIC'
