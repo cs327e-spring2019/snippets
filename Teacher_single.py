@@ -43,8 +43,7 @@ class DedupTeacherRecordsFn(beam.DoFn):
      teacher_record = teacher_list[0] # grab the first teacher record
      print('teacher_record: ' + str(teacher_record))
      return [teacher_record]  
-           
-         
+                    
 PROJECT_ID = os.environ['PROJECT_ID']
 
 # Project ID is required when using the BQ source
@@ -54,36 +53,44 @@ options = {
 opts = beam.pipeline.PipelineOptions(flags=[], **options)
 
 # Create beam pipeline using local runner
-with beam.Pipeline('DirectRunner', options=opts) as p:
+p = beam.Pipeline('DirectRunner', options=opts)
 
-    query_results = p | 'Read from BigQuery' >> beam.io.Read(beam.io.BigQuerySource(query='SELECT tid, instructor, dept FROM college_split.Teacher'))
+sql = 'SELECT tid, instructor, dept FROM college_workflow.Teacher_Temp'
+query_results = p | 'Read from BigQuery' >> beam.io.Read(beam.io.BigQuerySource(query=sql, use_standard_sql=True))
 
-    # write PCollection to log file
-    query_results | 'Write log 1' >> WriteToText('query_results.txt')
+# write PCollection to log file
+query_results | 'Write log 1' >> WriteToText('query_results.txt')
 
-    # apply ParDo to reformat the instructor and dept values  
-    formatted_teacher_pcoll = query_results | 'Format DOB' >> beam.ParDo(FormatTeacherFn())
+# apply ParDo to reformat the instructor and dept values  
+formatted_teacher_pcoll = query_results | 'Format DOB' >> beam.ParDo(FormatTeacherFn())
 
-    # write PCollection to log file
-    formatted_teacher_pcoll | 'Write log 2' >> WriteToText('formatted_teacher_pcoll.txt')
+# write PCollection to log file
+formatted_teacher_pcoll | 'Write log 2' >> WriteToText('formatted_teacher_pcoll.txt')
 
-    # group teachers by tid
-    grouped_teacher_pcoll = formatted_teacher_pcoll | 'Group by sid' >> beam.GroupByKey()
+# group teachers by tid
+grouped_teacher_pcoll = formatted_teacher_pcoll | 'Group by sid' >> beam.GroupByKey()
 
-    # write PCollection to log file
-    grouped_teacher_pcoll | 'Write log 3' >> WriteToText('grouped_teacher_pcoll.txt')
-  
-    # remove duplicate teacher records
-    distinct_teacher_pcoll = grouped_teacher_pcoll | 'Dedup teacher records' >> beam.ParDo(DedupTeacherRecordsFn())
+# write PCollection to log file
+grouped_teacher_pcoll | 'Write log 3' >> WriteToText('grouped_teacher_pcoll.txt')
 
-    # write PCollection to log file
-    distinct_teacher_pcoll | 'Write log 4' >> WriteToText('distinct_teacher_pcoll.txt')
-    
-    qualified_table_name = PROJECT_ID + ':college_normalized.Teacher'
-    table_schema = 'tid:STRING,fname:STRING,lname:STRING,dept:STRING'
-    
-    # write PCollection to new BQ table
-    distinct_teacher_pcoll | 'Write BQ table' >> beam.io.Write(beam.io.BigQuerySink(qualified_table_name, 
-                                                    schema=table_schema,  
-                                                    create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
-                                                    write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE))
+# remove duplicate teacher records
+distinct_teacher_pcoll = grouped_teacher_pcoll | 'Dedup teacher records' >> beam.ParDo(DedupTeacherRecordsFn())
+
+# write PCollection to log file
+distinct_teacher_pcoll | 'Write log 4' >> WriteToText('distinct_teacher_pcoll.txt')
+
+dataset_id = 'college_workflow'
+table_id = 'Teacher'
+schema_id = 'tid:STRING,fname:STRING,lname:STRING,dept:STRING'
+
+# write PCollection to new BQ table
+distinct_teacher_pcoll | 'Write BQ table' >> beam.io.WriteToBigQuery(dataset=dataset_id, 
+                                            table=table_id, 
+                                            schema=schema_id,
+                                            project=PROJECT_ID,
+                                            create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+                                            write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE,
+                                            batch_size=int(100))
+                                            
+result = p.run()
+result.wait_until_finish()

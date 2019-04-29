@@ -43,26 +43,35 @@ options = {
 }
 opts = beam.pipeline.PipelineOptions(flags=[], **options)
 
-with beam.Pipeline('DataflowRunner', options=opts) as p:
+p = beam.Pipeline('DataflowRunner', options=opts)
 
-    takes_pcoll = p | 'Read from BQ Takes' >> beam.io.Read(beam.io.BigQuerySource(query='SELECT sid, cno, grade FROM college_split.Takes'))
-    class_pcoll = p | 'Read from BQ Class' >> beam.io.Read(beam.io.BigQuerySource(query='SELECT cno FROM college_split.Class'))
+takes_sql = 'SELECT sid, cno, grade FROM college_workflow.Takes_Temp'
+class_sql = 'SELECT cno FROM college_workflow.Class'
 
-    # write PCollections to log files
-    takes_pcoll | 'Write log 1' >> WriteToText(DIR_PATH + 'takes_query_results.txt')
-    class_pcoll | 'Write log 2' >> WriteToText(DIR_PATH + 'class_query_results.txt')
+takes_pcoll = p | 'Read from BQ Takes' >> beam.io.Read(beam.io.BigQuerySource(query=takes_sql, use_standard_sql=True))
+class_pcoll = p | 'Read from BQ Class' >> beam.io.Read(beam.io.BigQuerySource(query=class_sql, use_standard_sql=True))
 
-    # apply ParDo to check cno value's referential integrity 
-    norm_takes_pcoll = takes_pcoll | 'Normalize Record' >> beam.ParDo(NormalizeTakesFn(), beam.pvalue.AsList(class_pcoll))
+# write PCollections to log files
+takes_pcoll | 'Write log 1' >> WriteToText(DIR_PATH + 'takes_query_results.txt')
+class_pcoll | 'Write log 2' >> WriteToText(DIR_PATH + 'class_query_results.txt')
 
-    # write PCollection to log file
-    norm_takes_pcoll | 'Write log 3' >> WriteToText(DIR_PATH + 'norm_takes_pcoll.txt')
-    
-    qualified_table_name = PROJECT_ID + ':college_normalized.Takes'
-    table_schema = 'sid:STRING,cno:STRING,grade:STRING'
-    
-    # write PCollection to new BQ table
-    norm_takes_pcoll | 'Write BQ table' >> beam.io.Write(beam.io.BigQuerySink(qualified_table_name, 
-                                                    schema=table_schema,  
-                                                    create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
-                                                    write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE))
+# apply ParDo to check cno value's referential integrity 
+norm_takes_pcoll = takes_pcoll | 'Normalize Record' >> beam.ParDo(NormalizeTakesFn(), beam.pvalue.AsList(class_pcoll))
+
+# write PCollection to log file
+norm_takes_pcoll | 'Write log 3' >> WriteToText(DIR_PATH + 'norm_takes_pcoll.txt')
+
+dataset_id = 'college_workflow'
+table_id = 'Takes'
+schema_id = 'sid:STRING,cno:STRING,grade:STRING'
+
+# write PCollection to new BQ table
+norm_takes_pcoll | 'Write BQ table' >> beam.io.WriteToBigQuery(dataset=dataset_id, 
+                                            table=table_id, 
+                                            schema=schema_id,
+                                            project=PROJECT_ID,
+                                            create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+                                            write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE,
+                                            batch_size=int(100))
+result = p.run()
+result.wait_until_finish()

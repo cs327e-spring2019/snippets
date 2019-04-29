@@ -51,36 +51,45 @@ options = {
 }
 opts = beam.pipeline.PipelineOptions(flags=[], **options)
 
-with beam.Pipeline('DataflowRunner', options=opts) as p:
+p = beam.Pipeline('DataflowRunner', options=opts)
 
-    query_results = p | 'Read from BigQuery' >> beam.io.Read(beam.io.BigQuerySource(query='SELECT sid, fname, lname, dob FROM college_split.Student'))
+sql = 'SELECT sid, fname, lname, dob FROM college_workflow.Student_Temp'
+bq_source = beam.io.BigQuerySource(query=sql, use_standard_sql=True)
 
-    # write PCollection to log file
-    query_results | 'Write log 1' >> WriteToText(DIR_PATH + 'query_results.txt')
+query_results = p | 'Read from BigQuery' >> beam.io.Read(bq_source)
 
-    # apply ParDo to format the student's date of birth  
-    formatted_dob_pcoll = query_results | 'Format DOB' >> beam.ParDo(FormatDOBFn())
+# write PCollection to log file
+query_results | 'Write log 1' >> WriteToText(DIR_PATH + 'query_results.txt')
 
-    # write PCollection to log file
-    formatted_dob_pcoll | 'Write log 2' >> WriteToText(DIR_PATH + 'formatted_dob_pcoll.txt')
+# apply ParDo to format the student's date of birth  
+formatted_dob_pcoll = query_results | 'Format DOB' >> beam.ParDo(FormatDOBFn())
 
-    # group students by sid
-    grouped_student_pcoll = formatted_dob_pcoll | 'Group by sid' >> beam.GroupByKey()
+# write PCollection to log file
+formatted_dob_pcoll | 'Write log 2' >> WriteToText(DIR_PATH + 'formatted_dob_pcoll.txt')
 
-    # write PCollection to log file
-    grouped_student_pcoll | 'Write log 3' >> WriteToText(DIR_PATH + 'grouped_student_pcoll.txt')
-  
-    # remove duplicate student records
-    distinct_student_pcoll = grouped_student_pcoll | 'Dedup student records' >> beam.ParDo(DedupStudentRecordsFn())
+# group students by sid
+grouped_student_pcoll = formatted_dob_pcoll | 'Group by sid' >> beam.GroupByKey()
 
-    # write PCollection to log file
-    distinct_student_pcoll | 'Write log 4' >> WriteToText(DIR_PATH + 'distinct_student_pcoll.txt')
-    
-    qualified_table_name = PROJECT_ID + ':college_normalized.Student'
-    table_schema = 'sid:STRING,fname:STRING,lname:STRING,dob:DATE'
-    
-    # write PCollection to new BQ table
-    distinct_student_pcoll | 'Write BQ table' >> beam.io.Write(beam.io.BigQuerySink(qualified_table_name, 
-                                                    schema=table_schema,  
-                                                    create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
-                                                    write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE))
+# write PCollection to log file
+grouped_student_pcoll | 'Write log 3' >> WriteToText(DIR_PATH + 'grouped_student_pcoll.txt')
+
+# remove duplicate student records
+distinct_student_pcoll = grouped_student_pcoll | 'Dedup student records' >> beam.ParDo(DedupStudentRecordsFn())
+
+# write PCollection to log file
+distinct_student_pcoll | 'Write log 4' >> WriteToText(DIR_PATH + 'distinct_student_pcoll.txt')
+
+dataset_id = 'college_workflow'
+table_id = 'Student'
+schema_id = 'sid:STRING,fname:STRING,lname:STRING,dob:DATE'
+
+# write PCollection to new BQ table
+distinct_student_pcoll | 'Write BQ table' >> beam.io.WriteToBigQuery(dataset=dataset_id, 
+                                                table=table_id, 
+                                                schema=schema_id,
+                                                project=PROJECT_ID,
+                                                create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+                                                write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE,
+                                                batch_size=int(100))
+result = p.run()
+result.wait_until_finish()

@@ -60,36 +60,44 @@ options = {
 }
 opts = beam.pipeline.PipelineOptions(flags=[], **options)
 
-with beam.Pipeline('DataflowRunner', options=opts) as p:
+p = beam.Pipeline('DataflowRunner', options=opts)
 
-    query_results = p | 'Read from BigQuery' >> beam.io.Read(beam.io.BigQuerySource(query='SELECT tid, instructor, dept FROM college_split.Teacher'))
+sql = 'SELECT tid, instructor, dept FROM college_workflow.Teacher_Temp'
+query_results = p | 'Read from BigQuery' >> beam.io.Read(beam.io.BigQuerySource(query=sql, use_standard_sql=True))
 
-    # write PCollection to log file
-    query_results | 'Write log 1' >> WriteToText(DIR_PATH + 'query_results.txt')
+# write PCollection to log file
+query_results | 'Write log 1' >> WriteToText(DIR_PATH + 'query_results.txt')
 
-    # apply ParDo to reformat the instructor and dept values  
-    formatted_teacher_pcoll = query_results | 'Format DOB' >> beam.ParDo(FormatTeacherFn())
+# apply ParDo to reformat the instructor and dept values  
+formatted_teacher_pcoll = query_results | 'Format DOB' >> beam.ParDo(FormatTeacherFn())
 
-    # write PCollection to log file
-    formatted_teacher_pcoll | 'Write log 2' >> WriteToText(DIR_PATH + 'formatted_teacher_pcoll.txt')
+# write PCollection to log file
+formatted_teacher_pcoll | 'Write log 2' >> WriteToText(DIR_PATH + 'formatted_teacher_pcoll.txt')
 
-    # group teachers by tid
-    grouped_teacher_pcoll = formatted_teacher_pcoll | 'Group by sid' >> beam.GroupByKey()
+# group teachers by tid
+grouped_teacher_pcoll = formatted_teacher_pcoll | 'Group by sid' >> beam.GroupByKey()
 
-    # write PCollection to log file
-    grouped_teacher_pcoll | 'Write log 3' >> WriteToText(DIR_PATH + 'grouped_teacher_pcoll.txt')
-  
-    # remove duplicate teacher records
-    distinct_teacher_pcoll = grouped_teacher_pcoll | 'Dedup teacher records' >> beam.ParDo(DedupTeacherRecordsFn())
+# write PCollection to log file
+grouped_teacher_pcoll | 'Write log 3' >> WriteToText(DIR_PATH + 'grouped_teacher_pcoll.txt')
 
-    # write PCollection to log file
-    distinct_teacher_pcoll | 'Write log 4' >> WriteToText(DIR_PATH + 'distinct_teacher_pcoll.txt')
+# remove duplicate teacher records
+distinct_teacher_pcoll = grouped_teacher_pcoll | 'Dedup teacher records' >> beam.ParDo(DedupTeacherRecordsFn())
+
+# write PCollection to log file
+distinct_teacher_pcoll | 'Write log 4' >> WriteToText(DIR_PATH + 'distinct_teacher_pcoll.txt')
+
+dataset_id = 'college_workflow'
+table_id = 'Teacher'
+schema_id = 'tid:STRING,fname:STRING,lname:STRING,dept:STRING'
     
-    qualified_table_name = PROJECT_ID + ':college_normalized.Teacher'
-    table_schema = 'tid:STRING,fname:STRING,lname:STRING,dept:STRING'
-    
-    # write PCollection to new BQ table
-    distinct_teacher_pcoll | 'Write BQ table' >> beam.io.Write(beam.io.BigQuerySink(qualified_table_name, 
-                                                    schema=table_schema,  
-                                                    create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
-                                                    write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE))
+# write PCollection to new BQ table
+distinct_teacher_pcoll | 'Write BQ table' >> beam.io.WriteToBigQuery(dataset=dataset_id, 
+                                            table=table_id, 
+                                            schema=schema_id,
+                                            project=PROJECT_ID,
+                                            create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+                                            write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE,
+                                            batch_size=int(100))
+                                            
+result = p.run()
+result.wait_until_finish()
