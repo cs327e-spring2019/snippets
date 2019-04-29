@@ -1,12 +1,14 @@
 import datetime
 from airflow import models
 from airflow.operators.bash_operator import BashOperator
+from airflow.operators.dummy_operator import DummyOperator
 
 default_dag_args = {
     # https://airflow.apache.org/faq.html#what-s-the-deal-with-start-date
     'start_date': datetime.datetime(2019, 4, 1)
 }
 
+###### SQL variables ###### 
 raw_dataset = 'college'
 new_dataset = 'college_workflow'
 sql_cmd_start = 'bq query --use_legacy_sql=false '
@@ -42,12 +44,30 @@ sql_takes = 'create table ' + new_dataset + '.Takes_Temp as ' \
             'where sid is not null ' \
             'and cno is not null ' \
             'order by sid'
+  
+###### Beam variables ######          
+LOCAL_MODE=1 # run beam jobs locally
+DIST_MODE=2 # run beam jobs on Dataflow
 
+mode=LOCAL_MODE
+
+if mode == LOCAL_MODE:
+    student_script = 'Student_single.py'
+    takes_script = 'Takes_single.py'
+    teacher_script = 'Teacher_single.py'
+    
+if mode == DIST_MODE:
+    student_script = 'Student_cluster.py'
+    takes_script = 'Takes_cluster.py'
+    teacher_script = 'Teacher_cluster.py'
+
+###### DAG section ###### 
 with models.DAG(
-        'college_workflow2',
+        'college_workflow4',
         schedule_interval=datetime.timedelta(days=1),
         default_args=default_dag_args) as dag:
 
+    ###### SQL tasks ######
     delete_dataset = BashOperator(
             task_id='delete_dataset',
             bash_command='bq rm -r -f college_workflow')
@@ -75,5 +95,21 @@ with models.DAG(
     create_takes_table = BashOperator(
             task_id='create_takes_table',
             bash_command=sql_cmd_start + '"' + sql_takes + '"')
+    
+    ###### Beam tasks ######     
+    student_beam = BashOperator(
+            task_id='student_beam',
+            bash_command='python /Users/scohen/airflow/dags/' + student_script)
             
-    delete_dataset >> create_dataset >> [create_student_table, create_teacher_table, create_class_table, create_teaches_table, create_takes_table]
+    takes_beam = BashOperator(
+            task_id='takes_beam',
+            bash_command='python /Users/scohen/airflow/dags/' + takes_script)
+            
+    teacher_beam = BashOperator(
+            task_id='teacher_beam',
+            bash_command='python /Users/scohen/airflow/dags/' + teacher_script)
+            
+    transition = DummyOperator(task_id='transition')
+            
+    delete_dataset >> create_dataset >> [create_student_table, create_teacher_table, create_class_table, create_teaches_table, create_takes_table] >> transition
+    transition >> [student_beam, takes_beam, teacher_beam]

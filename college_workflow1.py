@@ -8,17 +8,17 @@ default_dag_args = {
     'start_date': datetime.datetime(2019, 4, 1)
 }
 
-raw_dataset = 'college'
-new_dataset = 'college_workflow'
+raw_dataset = 'college' # dataset with raw tables
+new_dataset = 'college_workflow' # empty dataset for destination tables
 sql_cmd_start = 'bq query --use_legacy_sql=false '
 
-sql_student = 'create table ' + new_dataset + '.Student as select distinct sid, fname, lname, dob ' \
+sql_student = 'create table ' + new_dataset + '.Student_Temp as select distinct sid, fname, lname, dob ' \
            'from ' + raw_dataset + '.Current_Student ' \
            'union distinct ' \
            'select distinct sid, fname, lname, cast(dob as string) as dob ' \
            'from college.New_Student'
        
-sql_teacher = 'create table ' + new_dataset + '.Teacher as ' \
+sql_teacher = 'create table ' + new_dataset + '.Teacher_Temp as ' \
             'select distinct tid, instructor, dept ' \
             'from ' + raw_dataset + '.Class ' \
             'where tid is not null ' \
@@ -37,7 +37,7 @@ sql_teaches = 'create table ' + new_dataset + '.Teaches as ' \
             'and cno is not null ' \
             'order by tid'
             
-sql_takes = 'create table ' + new_dataset + '.Takes as ' \
+sql_takes = 'create table ' + new_dataset + '.Takes_Temp as ' \
             'select distinct sid, cno, grade ' \
             'from ' + raw_dataset + '.Current_Student ' \
             'where sid is not null ' \
