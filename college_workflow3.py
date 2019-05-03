@@ -8,6 +8,7 @@ default_dag_args = {
     'start_date': datetime.datetime(2019, 4, 1)
 }
 
+AIRFLOW_DAGS_DIR='/home/shirley_cohen/.local/bin/dags/' # replace with your path
 LOCAL_MODE=1 # run beam jobs locally
 DIST_MODE=2 # run beam jobs on Dataflow
 
@@ -29,14 +30,14 @@ with models.DAG('college_workflow3',
 
     student_beam = BashOperator(
             task_id='student_beam',
-            bash_command='python /Users/scohen/airflow/dags/' + student_script)
+            bash_command='python ' + AIRFLOW_DAGS_DIR + student_script)
             
     takes_beam = BashOperator(
             task_id='takes_beam',
-            bash_command='python /Users/scohen/airflow/dags/' + takes_script)
+            bash_command='python ' + AIRFLOW_DAGS_DIR + takes_script)
             
     teacher_beam = BashOperator(
             task_id='teacher_beam',
-            bash_command='python /Users/scohen/airflow/dags/' + teacher_script)
+            bash_command='python ' + AIRFLOW_DAGS_DIR + teacher_script)
             
     [student_beam, takes_beam, teacher_beam]
